@@ -39,3 +39,8 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 - 完成：Next.js 项目初始化，ESLint + Prettier + TypeScript strict 配置，目录结构、`.env.example`、README 骨架、Git 仓库建立并推送。
 - 问题：pnpm 环境变量未配置，改用 npx 临时方案后修复；`.gitignore` 的 `.env*` 会误伤 `.env.example`，已加 `!.env.example` 例外。
 - 明天优先：三栏工作台 UI 骨架与核心组件拆分。
+
+### Day 2
+- 完成：三栏 UI 骨架与 9 个核心组件拆分，Zustand 最小 store 接入，TanStack Query mock 历史列表跑通加载/错误/空状态，新增 `/dev/components` 组件集中页，变体拆到 `dev/components/`。
+- 问题：第 4、5 批改动混在一起漏提交；`app/dev/components/page.tsx` 首次生成为 0 字节导致 build 报 `is not a module`，重写内容后修复。
+- 明天优先：`lib/ai.ts` 封装 + `/api/extract` 流式提取，打通“粘贴文本 → 流式字段流入”。
