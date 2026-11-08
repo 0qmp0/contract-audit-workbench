@@ -34,3 +34,8 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+### Day 1
+- 完成：Next.js 项目初始化，ESLint + Prettier + TypeScript strict 配置，目录结构、`.env.example`、README 骨架、Git 仓库建立并推送。
+- 问题：pnpm 环境变量未配置，改用 npx 临时方案后修复；`.gitignore` 的 `.env*` 会误伤 `.env.example`，已加 `!.env.example` 例外。
+- 明天优先：三栏工作台 UI 骨架与核心组件拆分。
