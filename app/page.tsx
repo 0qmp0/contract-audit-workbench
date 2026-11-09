@@ -10,7 +10,9 @@ import { StatusBar } from '@/components/StatusBar';
 import { UploadBox } from '@/components/UploadBox';
 import { useAuditHistory } from '@/hooks/useAuditHistory';
 import { mockFields, mockSourceText } from '@/lib/mock-data';
+import { parseAIResponse } from '@/lib/parse-extraction';
 import { useAuditStore } from '@/stores/audit-store';
+import type { ExtractedField } from '@/types/field';
 
 export default function HomePage() {
   const selectedId = useAuditStore((state) => state.selectedFieldId);
@@ -23,9 +25,11 @@ export default function HomePage() {
   const [streamError, setStreamError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const [extractedFields, setExtractedFields] = useState<ExtractedField[]>(mockFields);
+
   const selectedField = useMemo(
-    () => mockFields.find((field) => field.id === selectedId) ?? null,
-    [selectedId],
+    () => extractedFields.find((field) => field.id === selectedId) ?? null,
+    [extractedFields, selectedId],
   );
 
   const handleExtract = async () => {
@@ -56,6 +60,7 @@ export default function HomePage() {
       let buffer = '';
       let visible = '';
 
+      // 只负责接收流，不解析 JSON
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -70,7 +75,7 @@ export default function HomePage() {
           const payload = line.slice(5).trim();
           if (!payload || payload === '[DONE]') continue;
 
-                    try {
+          try {
             const parsed = JSON.parse(payload) as {
               type?: string;
               delta?: string;
@@ -89,8 +94,19 @@ export default function HomePage() {
               setStreamError(message);
             }
           } catch {
-            // 非 JSON 的 data 行忽略，避免解析失败打断流
+            // 非 JSON 的 data 行忽略
           }
+        }
+      }
+
+      // 流结束后再统一解析
+      if (visible.trim()) {
+        try {
+          const fields = parseAIResponse(visible, inputText);
+          setExtractedFields(fields);
+          setStreamError(null);
+        } catch (parseErr) {
+          setStreamError(parseErr instanceof Error ? parseErr.message : '解析失败');
         }
       }
     } catch (err) {
@@ -160,11 +176,18 @@ export default function HomePage() {
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden p-2 lg:grid-cols-[1fr_1.1fr_1fr]">
         <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <SourcePanel sourceText={mockSourceText} activeSourceRef={selectedField?.sourceRef ?? null} />
+          <SourcePanel
+            sourceText={inputText || mockSourceText}
+            activeSourceRef={selectedField?.sourceRef ?? null}
+          />
         </section>
 
         <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <ExtractionList fields={mockFields} selectedId={selectedId} onSelect={selectField} />
+          <ExtractionList
+            fields={extractedFields}
+            selectedId={selectedId}
+            onSelect={selectField}
+          />
         </section>
 
         <section className="min-h-0 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -195,7 +218,7 @@ export default function HomePage() {
       <StatusBar
         status={isExtracting ? '正在提取…' : streamError ? '提取失败' : '就绪'}
         tone={isExtracting ? 'streaming' : streamError ? 'error' : 'idle'}
-        detail={`共 ${mockFields.length} 个字段`}
+        detail={`共 ${extractedFields.length} 个字段`}
       />
     </div>
   );
