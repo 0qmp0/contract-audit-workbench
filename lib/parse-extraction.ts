@@ -1,3 +1,4 @@
+import { getKnowledgeContext } from '@/lib/knowledge-base';
 import { evaluateField } from '@/rules/engine';
 import type { ExtractedField, ReviewStatus, SourceRef } from '@/types/field';
 
@@ -46,6 +47,7 @@ function toExtractedField(item: RawField, sourceText: string, index: number): Ex
     ...base,
     ruleResult,
     reviewStatus: ruleResult.level === 'blocked' ? 'needs-human' : reviewStatus,
+    knowledgeHint: getKnowledgeContext(name),
   };
 }
 

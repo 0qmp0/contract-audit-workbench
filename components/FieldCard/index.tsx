@@ -9,10 +9,13 @@ export interface FieldCardProps {
   onSelect: (id: string) => void;
 }
 
-const reviewStatusLabels: Record<ExtractedField['reviewStatus'], string> = {
-  pending: '待确认',
-  confirmed: '已确认',
-  'needs-human': '需人工复核',
+const reviewStatusTags: Record<
+  ExtractedField['reviewStatus'],
+  { label: string; className: string }
+> = {
+  pending: { label: '待确认', className: 'text-[10px] text-slate-400' },
+  confirmed: { label: '✅ 已核对', className: 'text-[10px] text-emerald-600' },
+  'needs-human': { label: '⚠️ 待复核', className: 'text-[10px] text-amber-600' },
 };
 
 export function FieldCard({ field, isSelected, onSelect }: FieldCardProps) {
@@ -38,6 +41,9 @@ export function FieldCard({ field, isSelected, onSelect }: FieldCardProps) {
           <RuleBadge level={ruleResult.level} />
         </span>
       </div>
+      <p className={`mt-0.5 ${reviewStatusTags[field.reviewStatus].className}`}>
+        {reviewStatusTags[field.reviewStatus].label}
+      </p>
       <p className="mt-1 line-clamp-2 text-xs text-slate-600">{field.aiValue}</p>
       {showRuleReason ? (
         <p className="mt-1 line-clamp-2 text-xs text-slate-500">
@@ -47,7 +53,6 @@ export function FieldCard({ field, isSelected, onSelect }: FieldCardProps) {
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
         {confidence !== undefined ? <span>置信度 {Math.round(confidence * 100)}%</span> : null}
         <span title={sourceRef?.snippet}>{sourceRef ? '已定位原文' : '未定位原文'}</span>
-        <span>{reviewStatusLabels[field.reviewStatus]}</span>
       </div>
     </button>
   );

@@ -13,6 +13,7 @@ interface AuditState {
   toggleAuditPanel: () => void;
   setAuditResult: (text: string, fields: ExtractedField[]) => void;
   loadSession: (session: AuditSession) => void;
+  updateFieldReviewStatus: (fieldId: string, status: 'pending' | 'confirmed' | 'needs-human') => void;
 }
 
 export const useAuditStore = create<AuditState>((set) => ({
@@ -55,5 +56,29 @@ export const useAuditStore = create<AuditState>((set) => ({
       selectedFieldId: session.fields[0]?.id ?? null,
     });
     saveCurrentSession(session);
+  },
+
+  updateFieldReviewStatus: (fieldId, status) => {
+    set((state) => {
+      const extractedFields = state.extractedFields.map((field) =>
+        field.id === fieldId ? { ...field, reviewStatus: status } : field,
+      );
+
+      const sessionId = state.currentSessionId ?? Date.now().toString();
+      const session: AuditSession = {
+        id: sessionId,
+        title: state.sourceText.trim().slice(0, 15) + '...',
+        createdAt: new Date().toISOString(),
+        sourceText: state.sourceText,
+        fields: extractedFields,
+      };
+
+      saveCurrentSession(session);
+
+      return {
+        extractedFields,
+        currentSessionId: sessionId,
+      };
+    });
   },
 }));

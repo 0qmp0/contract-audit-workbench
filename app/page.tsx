@@ -34,6 +34,7 @@ export default function HomePage() {
   const [streamError, setStreamError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const isManualAbortRef = useRef(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   // 移动端输入区折叠
   const [showInput, setShowInput] = useState(true);
@@ -61,8 +62,9 @@ export default function HomePage() {
     abortRef.current = new AbortController();
     
     // 30秒超时
-    const timeoutId = setTimeout(() => {
-      if (abortRef.current) abortRef.current.abort();
+    timeoutRef.current = setTimeout(() => {
+      if (isManualAbortRef.current) return;
+      abortRef.current?.abort();
       setStreamError('请求超时，AI 响应时间过长，请重试。');
     }, 30000);
 
@@ -138,15 +140,24 @@ export default function HomePage() {
         }
       }
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
+      const isAbortError =
+        (err instanceof DOMException && err.name === 'AbortError') ||
+        (err instanceof Error && err.name === 'AbortError');
+
+      if (isAbortError) {
         if (isManualAbortRef.current) {
           setStreamError('已中断提取');
         }
+      } else if (isManualAbortRef.current) {
+        setStreamError('已中断提取');
       } else {
         setStreamError(err instanceof Error ? err.message : '未知错误');
       }
     } finally {
-      clearTimeout(timeoutId);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
       setIsExtracting(false);
       abortRef.current = null;
     }
@@ -154,7 +165,31 @@ export default function HomePage() {
 
   const handleAbort = () => {
     isManualAbortRef.current = true;
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
     abortRef.current?.abort();
+  };
+
+  const handleClearPreview = () => {
+    setStreamedText('');
+    setStreamError(null);
+  };
+
+  const handleFileSelect = (file: File) => {
+    const name = file.name.toLowerCase();
+    if (!name.endsWith('.txt') && !name.endsWith('.md')) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = typeof e.target?.result === 'string' ? e.target.result : '';
+      setInputText(text);
+      setShowInput(true);
+    };
+    reader.readAsText(file);
   };
 
   const displaySourceText = sourceText || mockSourceText;
@@ -181,7 +216,7 @@ export default function HomePage() {
 
       {showInput && (
         <div className="border-b border-slate-200 bg-white px-4 py-2">
-          <UploadBox onFileSelect={(file) => console.log('selected file:', file.name)} />
+          <UploadBox onFileSelect={handleFileSelect} />
         </div>
       )}
 
@@ -216,16 +251,38 @@ export default function HomePage() {
             {streamError ? <span className="text-xs text-red-600">{streamError}</span> : null}
           </div>
           
-          {/* 首字延迟的 loading 占位 */}
           {isExtracting && !streamedText ? (
-            <div className="mt-2 flex animate-pulse items-center gap-2 rounded bg-slate-50 p-2 text-xs text-slate-500">
-              <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+            <div className="mt-2 flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-slate-600 transition-opacity">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+              </span>
               正在读取协议并调用 AI 分析…
             </div>
-          ) : streamedText ? (
-            <pre className="mt-2 max-h-40 overflow-y-auto rounded bg-slate-50 p-2 text-xs text-slate-700">
-              {streamedText}
-            </pre>
+          ) : isExtracting && streamedText ? (
+            <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 transition-all">
+              <div className="flex items-center gap-2 text-xs font-medium text-slate-700">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-500" />
+                </span>
+                {streamedText.includes('name') ? '正在识别关键条款...' : '正在解析文本结构...'}
+              </div>
+              <p className="mt-2 font-mono text-[11px] leading-relaxed text-slate-400">
+                {streamedText.slice(-80)}
+              </p>
+            </div>
+          ) : !isExtracting && streamedText ? (
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+              <p className="text-xs text-emerald-700">✅ 解析完成，已生成审计字段</p>
+              <button
+                type="button"
+                onClick={handleClearPreview}
+                className="shrink-0 rounded border border-emerald-300 px-2 py-0.5 text-[11px] text-emerald-700 transition-colors hover:bg-emerald-100"
+              >
+                清除预览
+              </button>
+            </div>
           ) : null}
         </div>
       )}

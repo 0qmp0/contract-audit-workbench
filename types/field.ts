@@ -23,4 +23,5 @@ export interface ExtractedField {
   ruleResult: RuleResult;
   sourceRef: SourceRef | null;
   reviewStatus: ReviewStatus;
+  knowledgeHint?: string | null;
 }
