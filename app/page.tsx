@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { AuditPanel } from '@/components/AuditPanel';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
@@ -17,10 +17,97 @@ export default function HomePage() {
   const selectField = useAuditStore((state) => state.selectField);
   const history = useAuditHistory();
 
+  const [inputText, setInputText] = useState('');
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [streamedText, setStreamedText] = useState('');
+  const [streamError, setStreamError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
   const selectedField = useMemo(
     () => mockFields.find((field) => field.id === selectedId) ?? null,
     [selectedId],
   );
+
+  const handleExtract = async () => {
+    if (!inputText.trim() || isExtracting) return;
+
+    setIsExtracting(true);
+    setStreamedText('');
+    setStreamError(null);
+    abortRef.current = new AbortController();
+
+    try {
+      const res = await fetch('/api/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceText: inputText }),
+        signal: abortRef.current.signal,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `请求失败 (${res.status})`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error('浏览器不支持流式读取');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let visible = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+
+                    try {
+            const parsed = JSON.parse(payload) as {
+              type?: string;
+              delta?: string;
+              errorText?: string;
+              error?: string | { message?: string };
+            };
+
+            if (parsed.type === 'text-delta' && typeof parsed.delta === 'string') {
+              visible += parsed.delta;
+              setStreamedText(visible);
+            } else if (parsed.type === 'error') {
+              const message =
+                parsed.errorText ??
+                (typeof parsed.error === 'string' ? parsed.error : parsed.error?.message) ??
+                '模型调用失败';
+              setStreamError(message);
+            }
+          } catch {
+            // 非 JSON 的 data 行忽略，避免解析失败打断流
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        setStreamError('已中断提取');
+      } else {
+        setStreamError(err instanceof Error ? err.message : '未知错误');
+      }
+    } finally {
+      setIsExtracting(false);
+      abortRef.current = null;
+    }
+  };
+
+  const handleAbort = () => {
+    abortRef.current?.abort();
+  };
 
   return (
     <div className="flex h-screen flex-col bg-slate-100">
@@ -33,6 +120,42 @@ export default function HomePage() {
 
       <div className="border-b border-slate-200 bg-white px-4 py-2">
         <UploadBox onFileSelect={(file) => console.log('selected file:', file.name)} />
+      </div>
+
+      <div className="border-b border-slate-200 bg-white px-4 py-2">
+        <textarea
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          placeholder="粘贴协议文本…"
+          rows={4}
+          className="w-full rounded-md border border-slate-300 p-2 text-sm"
+          disabled={isExtracting}
+        />
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleExtract}
+            disabled={isExtracting || !inputText.trim()}
+            className="rounded-md bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+          >
+            {isExtracting ? '提取中…' : '开始提取'}
+          </button>
+          {isExtracting ? (
+            <button
+              type="button"
+              onClick={handleAbort}
+              className="rounded-md border border-red-300 px-3 py-1.5 text-xs text-red-700"
+            >
+              中断
+            </button>
+          ) : null}
+          {streamError ? <span className="text-xs text-red-600">{streamError}</span> : null}
+        </div>
+        {streamedText ? (
+          <pre className="mt-2 max-h-40 overflow-y-auto rounded bg-slate-50 p-2 text-xs text-slate-700">
+            {streamedText}
+          </pre>
+        ) : null}
       </div>
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden p-2 lg:grid-cols-[1fr_1.1fr_1fr]">
@@ -69,7 +192,11 @@ export default function HomePage() {
         </section>
       </main>
 
-      <StatusBar status="就绪" tone="idle" detail={`共 ${mockFields.length} 个字段`} />
+      <StatusBar
+        status={isExtracting ? '正在提取…' : streamError ? '提取失败' : '就绪'}
+        tone={isExtracting ? 'streaming' : streamError ? 'error' : 'idle'}
+        detail={`共 ${mockFields.length} 个字段`}
+      />
     </div>
   );
 }
