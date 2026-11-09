@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AuditPanel } from '@/components/AuditPanel';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorState } from '@/components/ErrorState';
@@ -11,25 +11,37 @@ import { UploadBox } from '@/components/UploadBox';
 import { useAuditHistory } from '@/hooks/useAuditHistory';
 import { mockFields, mockSourceText } from '@/lib/mock-data';
 import { parseAIResponse } from '@/lib/parse-extraction';
+import { loadCurrentSession } from '@/lib/storage';
 import { useAuditStore } from '@/stores/audit-store';
 
 export default function HomePage() {
-  const { 
-    selectedFieldId, 
-    selectField, 
-    sourceText, 
-    extractedFields, 
-    setAuditResult 
+  const {
+    selectedFieldId,
+    selectField,
+    sourceText,
+    extractedFields,
+    setAuditResult,
+    loadSession,
+    currentSessionId, // 新增：用于高亮当前选中的历史记录
   } = useAuditStore();
 
   const history = useAuditHistory();
-  
+
   // 控制输入框和流式的本地状态
   const [inputText, setInputText] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
   const [streamedText, setStreamedText] = useState('');
   const [streamError, setStreamError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // 挂载时从 IndexedDB 恢复数据
+  useEffect(() => {
+    loadCurrentSession().then((session) => {
+      if (session) {
+        loadSession(session);
+      }
+    });
+  }, [loadSession]);
 
   const selectedField = useMemo(
     () => extractedFields.find((field) => field.id === selectedFieldId) ?? null,
@@ -43,9 +55,6 @@ export default function HomePage() {
     setStreamedText('');
     setStreamError(null);
     abortRef.current = new AbortController();
-
-    // 开始提取时，清除旧数据，显示空状态（或保留原来的数据？这里选择清除）
-    // 如果希望保留旧数据，可以先不清除 store
 
     try {
       const res = await fetch('/api/extract', {
@@ -93,11 +102,14 @@ export default function HomePage() {
               visible += parsed.delta;
               setStreamedText(visible);
             } else if (parsed.type === 'error') {
-              const message = parsed.errorText ?? (typeof parsed.error === 'string' ? parsed.error : parsed.error?.message) ?? '模型调用失败';
+              const message =
+                parsed.errorText ??
+                (typeof parsed.error === 'string' ? parsed.error : parsed.error?.message) ??
+                '模型调用失败';
               setStreamError(message);
             }
           } catch {
-            // ignore
+            // 非 JSON 的 data 行忽略
           }
         }
       }
@@ -105,9 +117,14 @@ export default function HomePage() {
       if (visible.trim()) {
         try {
           const fields = parseAIResponse(visible, inputText);
-          // 将解析结果存入 Zustand
+          // 将解析结果存入 Zustand，并异步保存到 IndexedDB
           setAuditResult(inputText, fields);
           setStreamError(null);
+          
+          // 稍微延迟一点，等 IndexedDB 写完再更新历史列表查询
+          setTimeout(() => {
+            history.refetch();
+          }, 300);
         } catch (parseErr) {
           setStreamError(parseErr instanceof Error ? parseErr.message : '解析失败');
         }
@@ -202,7 +219,9 @@ export default function HomePage() {
             <AuditPanel field={selectedField} />
           </div>
           <div className="border-t border-slate-200 p-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">历史审阅</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              历史审阅
+            </h2>
             {history.isPending ? (
               <p className="mt-2 text-xs text-slate-400">加载中…</p>
             ) : history.isError ? (
@@ -210,8 +229,17 @@ export default function HomePage() {
             ) : history.data && history.data.length > 0 ? (
               <ul className="mt-2 space-y-1">
                 {history.data.map((item) => (
-                  <li key={item.id} className="truncate text-xs text-slate-600">
-                    {item.title}
+                  <li key={item.id}>
+                    <button
+                      onClick={() => loadSession(item)}
+                      className={`w-full truncate rounded px-2 py-1 text-left text-xs transition-colors hover:bg-slate-100 ${
+                        item.id === currentSessionId
+                          ? 'bg-slate-100 font-medium text-slate-900'
+                          : 'text-slate-600'
+                      }`}
+                    >
+                      {item.title}
+                    </button>
                   </li>
                 ))}
               </ul>
