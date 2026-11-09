@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AuditPanel } from '@/components/AuditPanel';
 import { EmptyState } from '@/components/EmptyState';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ErrorState } from '@/components/ErrorState';
 import { ExtractionList } from '@/components/ExtractionList';
 import { SourcePanel } from '@/components/SourcePanel';
@@ -22,19 +23,21 @@ export default function HomePage() {
     extractedFields,
     setAuditResult,
     loadSession,
-    currentSessionId, // 新增：用于高亮当前选中的历史记录
+    currentSessionId,
   } = useAuditStore();
 
   const history = useAuditHistory();
 
-  // 控制输入框和流式的本地状态
   const [inputText, setInputText] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
   const [streamedText, setStreamedText] = useState('');
   const [streamError, setStreamError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const isManualAbortRef = useRef(false);
+  
+  // 移动端输入区折叠
+  const [showInput, setShowInput] = useState(true);
 
-  // 挂载时从 IndexedDB 恢复数据
   useEffect(() => {
     loadCurrentSession().then((session) => {
       if (session) {
@@ -54,7 +57,14 @@ export default function HomePage() {
     setIsExtracting(true);
     setStreamedText('');
     setStreamError(null);
+    isManualAbortRef.current = false;
     abortRef.current = new AbortController();
+    
+    // 30秒超时
+    const timeoutId = setTimeout(() => {
+      if (abortRef.current) abortRef.current.abort();
+      setStreamError('请求超时，AI 响应时间过长，请重试。');
+    }, 30000);
 
     try {
       const res = await fetch('/api/extract', {
@@ -109,7 +119,7 @@ export default function HomePage() {
               setStreamError(message);
             }
           } catch {
-            // 非 JSON 的 data 行忽略
+            // ignore
           }
         }
       }
@@ -117,11 +127,9 @@ export default function HomePage() {
       if (visible.trim()) {
         try {
           const fields = parseAIResponse(visible, inputText);
-          // 将解析结果存入 Zustand，并异步保存到 IndexedDB
           setAuditResult(inputText, fields);
           setStreamError(null);
           
-          // 稍微延迟一点，等 IndexedDB 写完再更新历史列表查询
           setTimeout(() => {
             history.refetch();
           }, 300);
@@ -131,127 +139,157 @@ export default function HomePage() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        setStreamError('已中断提取');
+        if (isManualAbortRef.current) {
+          setStreamError('已中断提取');
+        }
       } else {
         setStreamError(err instanceof Error ? err.message : '未知错误');
       }
     } finally {
+      clearTimeout(timeoutId);
       setIsExtracting(false);
       abortRef.current = null;
     }
   };
 
   const handleAbort = () => {
+    isManualAbortRef.current = true;
     abortRef.current?.abort();
   };
 
-  // 决定展示什么数据：如果是首次进入，没数据，展示 mock 作为演示
   const displaySourceText = sourceText || mockSourceText;
   const displayFields = extractedFields.length > 0 ? extractedFields : mockFields;
 
   return (
-    <div className="flex h-screen flex-col bg-slate-100">
-      <header className="border-b border-slate-200 bg-white px-4 py-3">
-        <h1 className="text-sm font-semibold text-slate-800">合同条款辅助审阅与规则审计工作台</h1>
-        <p className="mt-0.5 text-xs text-slate-500">
-          辅助审阅与审计，不提供法律意见，最终判断由人工完成。
-        </p>
+    // 使用 h-dvh 适配移动端视口
+    <div className="flex h-dvh flex-col bg-slate-100">
+      <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
+        <div>
+          <h1 className="text-sm font-semibold text-slate-800">合同条款辅助审阅与规则审计工作台</h1>
+          <p className="mt-0.5 text-xs text-slate-500">
+            辅助审阅与审计，不提供法律意见，最终判断由人工完成。
+          </p>
+        </div>
+        {/* 移动端折叠按钮 */}
+        <button
+          onClick={() => setShowInput(!showInput)}
+          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-600 md:hidden"
+        >
+          {showInput ? '收起输入' : '展开输入'}
+        </button>
       </header>
 
-      <div className="border-b border-slate-200 bg-white px-4 py-2">
-        <UploadBox onFileSelect={(file) => console.log('selected file:', file.name)} />
-      </div>
+      {showInput && (
+        <div className="border-b border-slate-200 bg-white px-4 py-2">
+          <UploadBox onFileSelect={(file) => console.log('selected file:', file.name)} />
+        </div>
+      )}
 
-      <div className="border-b border-slate-200 bg-white px-4 py-2">
-        <textarea
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          placeholder="粘贴协议文本…"
-          rows={4}
-          className="w-full rounded-md border border-slate-300 p-2 text-sm"
-          disabled={isExtracting}
-        />
-        <div className="mt-2 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleExtract}
-            disabled={isExtracting || !inputText.trim()}
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
-          >
-            {isExtracting ? '提取中…' : '开始提取'}
-          </button>
-          {isExtracting ? (
+      {showInput && (
+        <div className="border-b border-slate-200 bg-white px-4 py-2">
+          <textarea
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            placeholder="粘贴协议文本…"
+            rows={4}
+            className="w-full rounded-md border border-slate-300 p-2 text-sm"
+            disabled={isExtracting}
+          />
+          <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
-              onClick={handleAbort}
-              className="rounded-md border border-red-300 px-3 py-1.5 text-xs text-red-700"
+              onClick={handleExtract}
+              disabled={isExtracting || !inputText.trim()}
+              className="rounded-md bg-slate-900 px-3 py-1.5 text-xs text-white disabled:opacity-50"
             >
-              中断
+              {isExtracting ? '提取中…' : '开始提取'}
             </button>
+            {isExtracting ? (
+              <button
+                type="button"
+                onClick={handleAbort}
+                className="rounded-md border border-red-300 px-3 py-1.5 text-xs text-red-700"
+              >
+                中断
+              </button>
+            ) : null}
+            {streamError ? <span className="text-xs text-red-600">{streamError}</span> : null}
+          </div>
+          
+          {/* 首字延迟的 loading 占位 */}
+          {isExtracting && !streamedText ? (
+            <div className="mt-2 flex animate-pulse items-center gap-2 rounded bg-slate-50 p-2 text-xs text-slate-500">
+              <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+              正在读取协议并调用 AI 分析…
+            </div>
+          ) : streamedText ? (
+            <pre className="mt-2 max-h-40 overflow-y-auto rounded bg-slate-50 p-2 text-xs text-slate-700">
+              {streamedText}
+            </pre>
           ) : null}
-          {streamError ? <span className="text-xs text-red-600">{streamError}</span> : null}
         </div>
-        {streamedText ? (
-          <pre className="mt-2 max-h-40 overflow-y-auto rounded bg-slate-50 p-2 text-xs text-slate-700">
-            {streamedText}
-          </pre>
-        ) : null}
-      </div>
+      )}
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden p-2 lg:grid-cols-[1fr_1.1fr_1fr]">
-        <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <SourcePanel
-            sourceText={displaySourceText}
-            activeSourceRef={selectedField?.sourceRef ?? null}
-          />
-        </section>
+        <ErrorBoundary>
+          <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <SourcePanel
+              sourceText={displaySourceText}
+              activeSourceRef={selectedField?.sourceRef ?? null}
+            />
+          </section>
+        </ErrorBoundary>
 
-        <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <ExtractionList
-            fields={displayFields}
-            selectedId={selectedFieldId}
-            onSelect={selectField}
-          />
-        </section>
+        <ErrorBoundary>
+          <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <ExtractionList
+              fields={displayFields}
+              selectedId={selectedFieldId}
+              onSelect={selectField}
+            />
+          </section>
+        </ErrorBoundary>
 
-        <section className="min-h-0 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <AuditPanel field={selectedField} />
-          </div>
-          <div className="border-t border-slate-200 p-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              历史审阅
-            </h2>
-            {history.isPending ? (
-              <p className="mt-2 text-xs text-slate-400">加载中…</p>
-            ) : history.isError ? (
-              <ErrorState message="历史列表加载失败。" onRetry={() => history.refetch()} />
-            ) : history.data && history.data.length > 0 ? (
-              <ul className="mt-2 space-y-1">
-                {history.data.map((item) => (
-                  <li key={item.id}>
-                    <button
-                      onClick={() => loadSession(item)}
-                      className={`w-full truncate rounded px-2 py-1 text-left text-xs transition-colors hover:bg-slate-100 ${
-                        item.id === currentSessionId
-                          ? 'bg-slate-100 font-medium text-slate-900'
-                          : 'text-slate-600'
-                      }`}
-                    >
-                      {item.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState title="暂无历史审阅记录" />
-            )}
-          </div>
-        </section>
+        <ErrorBoundary>
+          <section className="min-h-0 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <AuditPanel field={selectedField} />
+            </div>
+            <div className="border-t border-slate-200 p-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                历史审阅
+              </h2>
+              {history.isPending ? (
+                <p className="mt-2 text-xs text-slate-400">加载中…</p>
+              ) : history.isError ? (
+                <ErrorState message="历史列表加载失败。" onRetry={() => history.refetch()} />
+              ) : history.data && history.data.length > 0 ? (
+                <ul className="mt-2 space-y-1">
+                  {history.data.map((item) => (
+                    <li key={item.id}>
+                      <button
+                        onClick={() => loadSession(item)}
+                        className={`w-full truncate rounded px-2 py-1 text-left text-xs transition-colors hover:bg-slate-100 ${
+                          item.id === currentSessionId
+                            ? 'bg-slate-100 font-medium text-slate-900'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        {item.title}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyState title="暂无历史审阅记录" />
+              )}
+            </div>
+          </section>
+        </ErrorBoundary>
       </main>
 
       <StatusBar
-        status={isExtracting ? '正在提取…' : streamError ? '提取失败' : '就绪'}
+        status={isExtracting ? 'AI 解析中…' : streamError ? '提取失败' : '就绪'}
         tone={isExtracting ? 'streaming' : streamError ? 'error' : 'idle'}
         detail={`共 ${displayFields.length} 个字段`}
       />
