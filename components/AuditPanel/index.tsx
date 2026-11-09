@@ -35,14 +35,16 @@ export function AuditPanel({ field }: AuditPanelProps) {
         ) : null}
       </section>
 
-      <section>
+            <section>
         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">原文依据</h3>
         {field.sourceRef ? (
           <p className="mt-1 rounded bg-slate-50 p-2 text-xs text-slate-600">
             “{field.sourceRef.snippet}”
           </p>
         ) : (
-          <p className="mt-1 text-xs text-slate-400">原文未提及，建议人工核对。</p>
+          <div className="mt-1 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+            <strong>⚠️ 未定位到原文：</strong> AI 可能产生了幻觉，或原文未明确提及。请务必人工核对。
+          </div>
         )}
       </section>
 

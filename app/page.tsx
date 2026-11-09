@@ -12,24 +12,28 @@ import { useAuditHistory } from '@/hooks/useAuditHistory';
 import { mockFields, mockSourceText } from '@/lib/mock-data';
 import { parseAIResponse } from '@/lib/parse-extraction';
 import { useAuditStore } from '@/stores/audit-store';
-import type { ExtractedField } from '@/types/field';
 
 export default function HomePage() {
-  const selectedId = useAuditStore((state) => state.selectedFieldId);
-  const selectField = useAuditStore((state) => state.selectField);
-  const history = useAuditHistory();
+  const { 
+    selectedFieldId, 
+    selectField, 
+    sourceText, 
+    extractedFields, 
+    setAuditResult 
+  } = useAuditStore();
 
+  const history = useAuditHistory();
+  
+  // 控制输入框和流式的本地状态
   const [inputText, setInputText] = useState('');
   const [isExtracting, setIsExtracting] = useState(false);
   const [streamedText, setStreamedText] = useState('');
   const [streamError, setStreamError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const [extractedFields, setExtractedFields] = useState<ExtractedField[]>(mockFields);
-
   const selectedField = useMemo(
-    () => extractedFields.find((field) => field.id === selectedId) ?? null,
-    [extractedFields, selectedId],
+    () => extractedFields.find((field) => field.id === selectedFieldId) ?? null,
+    [extractedFields, selectedFieldId],
   );
 
   const handleExtract = async () => {
@@ -39,6 +43,9 @@ export default function HomePage() {
     setStreamedText('');
     setStreamError(null);
     abortRef.current = new AbortController();
+
+    // 开始提取时，清除旧数据，显示空状态（或保留原来的数据？这里选择清除）
+    // 如果希望保留旧数据，可以先不清除 store
 
     try {
       const res = await fetch('/api/extract', {
@@ -60,7 +67,6 @@ export default function HomePage() {
       let buffer = '';
       let visible = '';
 
-      // 只负责接收流，不解析 JSON
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -87,23 +93,20 @@ export default function HomePage() {
               visible += parsed.delta;
               setStreamedText(visible);
             } else if (parsed.type === 'error') {
-              const message =
-                parsed.errorText ??
-                (typeof parsed.error === 'string' ? parsed.error : parsed.error?.message) ??
-                '模型调用失败';
+              const message = parsed.errorText ?? (typeof parsed.error === 'string' ? parsed.error : parsed.error?.message) ?? '模型调用失败';
               setStreamError(message);
             }
           } catch {
-            // 非 JSON 的 data 行忽略
+            // ignore
           }
         }
       }
 
-      // 流结束后再统一解析
       if (visible.trim()) {
         try {
           const fields = parseAIResponse(visible, inputText);
-          setExtractedFields(fields);
+          // 将解析结果存入 Zustand
+          setAuditResult(inputText, fields);
           setStreamError(null);
         } catch (parseErr) {
           setStreamError(parseErr instanceof Error ? parseErr.message : '解析失败');
@@ -124,6 +127,10 @@ export default function HomePage() {
   const handleAbort = () => {
     abortRef.current?.abort();
   };
+
+  // 决定展示什么数据：如果是首次进入，没数据，展示 mock 作为演示
+  const displaySourceText = sourceText || mockSourceText;
+  const displayFields = extractedFields.length > 0 ? extractedFields : mockFields;
 
   return (
     <div className="flex h-screen flex-col bg-slate-100">
@@ -177,15 +184,15 @@ export default function HomePage() {
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden p-2 lg:grid-cols-[1fr_1.1fr_1fr]">
         <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <SourcePanel
-            sourceText={inputText || mockSourceText}
+            sourceText={displaySourceText}
             activeSourceRef={selectedField?.sourceRef ?? null}
           />
         </section>
 
         <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
           <ExtractionList
-            fields={extractedFields}
-            selectedId={selectedId}
+            fields={displayFields}
+            selectedId={selectedFieldId}
             onSelect={selectField}
           />
         </section>
@@ -218,7 +225,7 @@ export default function HomePage() {
       <StatusBar
         status={isExtracting ? '正在提取…' : streamError ? '提取失败' : '就绪'}
         tone={isExtracting ? 'streaming' : streamError ? 'error' : 'idle'}
-        detail={`共 ${extractedFields.length} 个字段`}
+        detail={`共 ${displayFields.length} 个字段`}
       />
     </div>
   );

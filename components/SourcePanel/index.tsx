@@ -1,3 +1,6 @@
+'use client';
+
+import { useEffect, useRef } from 'react';
 import type { SourceRef } from '@/types/field';
 
 export interface SourcePanelProps {
@@ -6,6 +9,15 @@ export interface SourcePanelProps {
 }
 
 export function SourcePanel({ sourceText, activeSourceRef }: SourcePanelProps) {
+  const markRef = useRef<HTMLElement>(null);
+
+  // 监听高亮位置变化，自动滚动到中央
+  useEffect(() => {
+    if (activeSourceRef && markRef.current) {
+      markRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [activeSourceRef]);
+
   if (!sourceText.trim()) {
     return (
       <div className="flex h-full items-center justify-center px-4 text-xs text-slate-400">
@@ -22,7 +34,12 @@ export function SourcePanel({ sourceText, activeSourceRef }: SourcePanelProps) {
       {hasHighlight ? (
         <>
           {sourceText.slice(0, start)}
-          <mark className="rounded bg-amber-200 px-0.5">{sourceText.slice(start, end)}</mark>
+          <mark 
+            ref={markRef as React.RefObject<HTMLElement>} 
+            className="rounded bg-amber-200 px-0.5 transition-colors duration-300"
+          >
+            {sourceText.slice(start, end)}
+          </mark>
           {sourceText.slice(end)}
         </>
       ) : (
