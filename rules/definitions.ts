@@ -22,9 +22,15 @@ export const amountRule: Rule = {
   name: '金额/比例格式',
   appliesTo: ['比例', '金额', '价款', '费用', '违约金'],
   evaluate: ({ aiValue }: RuleContext) => {
-    if (aiValue === '原文未提及') return warning('AMOUNT_PATTERN', '原文未提及金额，建议人工核对。');
-    if (AMOUNT_PATTERN.test(aiValue)) return pass('AMOUNT_PATTERN', '金额与比例格式可解析，符合数字模式规则。');
-    return blocked('AMOUNT_PATTERN', '金额格式无法解析。', '建议人工核对，确认是否缺少单位或数字。');
+    if (aiValue === '原文未提及')
+      return warning('AMOUNT_PATTERN', '原文未提及金额，建议人工核对。');
+    if (AMOUNT_PATTERN.test(aiValue))
+      return pass('AMOUNT_PATTERN', '金额与比例格式可解析，符合数字模式规则。');
+    return blocked(
+      'AMOUNT_PATTERN',
+      '金额格式无法解析。',
+      '建议人工核对，确认是否缺少单位或数字。',
+    );
   },
 };
 
@@ -37,7 +43,8 @@ export const dateRule: Rule = {
   name: '期限可解析',
   appliesTo: ['期限', '时间', '日期', '交付', '付款'],
   evaluate: ({ aiValue }: RuleContext) => {
-    if (aiValue === '原文未提及') return warning('DATE_PARSEABLE', '原文未提及期限，建议人工核对。');
+    if (aiValue === '原文未提及')
+      return warning('DATE_PARSEABLE', '原文未提及期限，建议人工核对。');
     if (DURATION_PATTERN.test(aiValue) || DATE_PARSEABLE(aiValue)) {
       return pass('DATE_PARSEABLE', '期限可解析为明确时长或日期。');
     }
@@ -56,7 +63,11 @@ export const responsiblePartyRule: Rule = {
   appliesTo: ['主体', '甲方', '乙方', '责任方'],
   evaluate: ({ aiValue }: RuleContext) => {
     if (aiValue === '原文未提及' || !aiValue.trim()) {
-      return blocked('RESPONSIBLE_PARTY', '责任主体为空或原文未提及。', '建议人工核对，补全责任主体。');
+      return blocked(
+        'RESPONSIBLE_PARTY',
+        '责任主体为空或原文未提及。',
+        '建议人工核对，补全责任主体。',
+      );
     }
     return pass('RESPONSIBLE_PARTY', '责任主体非空。');
   },
@@ -90,7 +101,11 @@ export const breachClauseRule: Rule = {
   appliesTo: ['违约'],
   evaluate: ({ aiValue }: RuleContext) => {
     if (aiValue === '原文未提及' || aiValue.trim().length < 4) {
-      return warning('BREACH_CLAUSE', '违约条件描述过短或原文未提及。', '建议人工核对违约条款是否完整。');
+      return warning(
+        'BREACH_CLAUSE',
+        '违约条件描述过短或原文未提及。',
+        '建议人工核对违约条款是否完整。',
+      );
     }
     return pass('BREACH_CLAUSE', '违约条件非空且有描述。');
   },

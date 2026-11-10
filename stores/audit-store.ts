@@ -8,12 +8,15 @@ interface AuditState {
   currentSessionId: string | null;
   sourceText: string;
   extractedFields: ExtractedField[];
-  
+
   selectField: (id: string | null) => void;
   toggleAuditPanel: () => void;
   setAuditResult: (text: string, fields: ExtractedField[]) => void;
   loadSession: (session: AuditSession) => void;
-  updateFieldReviewStatus: (fieldId: string, status: 'pending' | 'confirmed' | 'needs-human') => void;
+  updateFieldReviewStatus: (
+    fieldId: string,
+    status: 'pending' | 'confirmed' | 'needs-human',
+  ) => void;
 }
 
 export const useAuditStore = create<AuditState>((set) => ({
@@ -25,7 +28,7 @@ export const useAuditStore = create<AuditState>((set) => ({
 
   selectField: (id) => set({ selectedFieldId: id }),
   toggleAuditPanel: () => set((state) => ({ auditPanelExpanded: !state.auditPanelExpanded })),
-  
+
   setAuditResult: (text, fields) => {
     const sessionId = Date.now().toString();
     const session: AuditSession = {
@@ -35,9 +38,9 @@ export const useAuditStore = create<AuditState>((set) => ({
       sourceText: text,
       fields,
     };
-    
-    set({ 
-      sourceText: text, 
+
+    set({
+      sourceText: text,
       extractedFields: fields,
       selectedFieldId: fields[0]?.id ?? null,
       currentSessionId: sessionId,

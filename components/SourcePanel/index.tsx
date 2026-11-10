@@ -34,8 +34,8 @@ export function SourcePanel({ sourceText, activeSourceRef }: SourcePanelProps) {
       {hasHighlight ? (
         <>
           {sourceText.slice(0, start)}
-          <mark 
-            ref={markRef as React.RefObject<HTMLElement>} 
+          <mark
+            ref={markRef as React.RefObject<HTMLElement>}
             className="rounded bg-amber-200 px-0.5 transition-colors duration-300"
           >
             {sourceText.slice(start, end)}

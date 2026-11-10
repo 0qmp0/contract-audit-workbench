@@ -1,4 +1,3 @@
-
 'use client';
 
 import { EmptyState } from '@/components/EmptyState';
