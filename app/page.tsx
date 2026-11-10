@@ -35,9 +35,16 @@ export default function HomePage() {
   const abortRef = useRef<AbortController | null>(null);
   const isManualAbortRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
+
   // 移动端输入区折叠
   const [showInput, setShowInput] = useState(true);
+
+  // 端侧 AI 推理状态
+  const [localAiStatus, setLocalAiStatus] = useState<
+    'idle' | 'loading' | 'inferencing' | 'complete' | 'error'
+  >('idle');
+  const workerRef = useRef<Worker | null>(null);
+  const [localAiResult, setLocalAiResult] = useState<{ label: string; score: number } | null>(null);
 
   useEffect(() => {
     loadCurrentSession().then((session) => {
@@ -46,6 +53,30 @@ export default function HomePage() {
       }
     });
   }, [loadSession]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      workerRef.current = new Worker(new URL('./worker.ts', import.meta.url));
+      workerRef.current.onmessage = (event) => {
+        const { status, result, error } = event.data;
+        setLocalAiStatus(status);
+        if (status === 'complete') {
+          const r = Array.isArray(result) ? result[0] : result;
+          if (r && typeof r.label === 'string') {
+            setLocalAiResult({ label: r.label, score: Number(r.score) || 0 });
+          }
+          console.log('端侧 AI 推理结果:', result);
+        }
+        if (status === 'error') {
+          setLocalAiResult(null);
+          console.error('端侧 AI 推理失败:', error);
+        }
+      };
+    }
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, []);
 
   const selectedField = useMemo(
     () => extractedFields.find((field) => field.id === selectedFieldId) ?? null,
@@ -60,7 +91,7 @@ export default function HomePage() {
     setStreamError(null);
     isManualAbortRef.current = false;
     abortRef.current = new AbortController();
-    
+
     // 30秒超时
     timeoutRef.current = setTimeout(() => {
       if (isManualAbortRef.current) return;
@@ -129,9 +160,27 @@ export default function HomePage() {
       if (visible.trim()) {
         try {
           const fields = parseAIResponse(visible, inputText);
-          setAuditResult(inputText, fields);
+
+          // 从服务端本地法律库为各字段补充知识提示，失败不阻断主流程
+          let hints: Record<string, string | null> = {};
+          try {
+            const knowledgeRes = await fetch('/api/knowledge', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ names: fields.map((f) => f.name) }),
+            });
+            const knowledgeData = await knowledgeRes.json();
+            hints = knowledgeData.hints ?? {};
+          } catch (knowledgeError) {
+            console.error('知识库查询失败:', knowledgeError);
+          }
+
+          setAuditResult(
+            inputText,
+            fields.map((f) => ({ ...f, knowledgeHint: hints[f.name] ?? null })),
+          );
           setStreamError(null);
-          
+
           setTimeout(() => {
             history.refetch();
           }, 300);
@@ -177,19 +226,47 @@ export default function HomePage() {
     setStreamError(null);
   };
 
+  const runLocalAi = () => {
+    if (!inputText.trim() || !workerRef.current) return;
+    setLocalAiStatus('loading');
+    setLocalAiResult(null);
+    workerRef.current.postMessage({ text: inputText, id: Date.now() });
+  };
+
   const handleFileSelect = (file: File) => {
     const name = file.name.toLowerCase();
-    if (!name.endsWith('.txt') && !name.endsWith('.md')) {
+
+    // 纯文本直接本地读取
+    if (name.endsWith('.txt') || name.endsWith('.md')) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = typeof e.target?.result === 'string' ? e.target.result : '';
+        setInputText(text);
+        setShowInput(true);
+      };
+      reader.readAsText(file);
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = typeof e.target?.result === 'string' ? e.target.result : '';
-      setInputText(text);
-      setShowInput(true);
-    };
-    reader.readAsText(file);
+    // PDF / DOCX 交由服务端解析
+    if (name.endsWith('.pdf') || name.endsWith('.docx')) {
+      (async () => {
+        try {
+          const form = new FormData();
+          form.append('file', file);
+          const res = await fetch('/api/parse-file', { method: 'POST', body: form });
+          const data = await res.json();
+          if (!res.ok || typeof data.text !== 'string') {
+            throw new Error(data.error || '文件解析失败');
+          }
+          setInputText(data.text);
+          setShowInput(true);
+        } catch (err) {
+          console.error('文件解析失败:', err);
+          alert(`文件解析失败：${err instanceof Error ? err.message : '未知错误'}`);
+        }
+      })();
+    }
   };
 
   const displaySourceText = sourceText || mockSourceText;
@@ -227,9 +304,12 @@ export default function HomePage() {
             onChange={(e) => setInputText(e.target.value)}
             placeholder="粘贴协议文本…"
             rows={4}
-            className="w-full rounded-md border border-slate-300 p-2 text-sm"
+            className="w-full rounded-md border border-slate-300 bg-white p-2 text-sm text-slate-800 placeholder:text-slate-400"
             disabled={isExtracting}
           />
+          <p className="mt-1 text-xs text-slate-400">
+            当前规则集最适配：含金额、交付期限、违约责任、争议解决条款的合同（如服务、买卖、委托类合同）；其他类型仍可提取，未命中规则的字段会提示「未匹配规则」。
+          </p>
           <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
@@ -248,9 +328,55 @@ export default function HomePage() {
                 中断
               </button>
             ) : null}
+            <button
+              type="button"
+              onClick={runLocalAi}
+              disabled={
+                localAiStatus === 'loading' || localAiStatus === 'inferencing' || !inputText.trim()
+              }
+              className="rounded-md border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+            >
+              {localAiStatus === 'loading' && '⏳ 加载端侧模型…'}
+              {localAiStatus === 'inferencing' && '🧠 端侧推理中…'}
+              {(localAiStatus === 'idle' ||
+                localAiStatus === 'complete' ||
+                localAiStatus === 'error') &&
+                '🧠 端侧AI检测'}
+            </button>
             {streamError ? <span className="text-xs text-red-600">{streamError}</span> : null}
           </div>
-          
+
+          {localAiStatus === 'complete' && localAiResult && (
+            <div
+              className="mt-1 flex items-center gap-2 rounded-md border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs text-purple-700"
+              data-testid="local-ai-result"
+            >
+              <span>✅ 端侧推理完成（模型已在浏览器本地运行）</span>
+              <span className="font-medium">
+                情感倾向：
+                <span
+                  className={
+                    localAiResult.label.toLowerCase() === 'positive'
+                      ? 'text-green-600'
+                      : localAiResult.label.toLowerCase() === 'negative'
+                        ? 'text-red-600'
+                        : 'text-amber-600'
+                  }
+                >
+                  {localAiResult.label.toLowerCase() === 'positive'
+                    ? '正面'
+                    : localAiResult.label.toLowerCase() === 'negative'
+                      ? '负面'
+                      : '中性'}
+                </span>
+                （置信度 {(localAiResult.score * 100).toFixed(1)}%）
+              </span>
+            </div>
+          )}
+          {localAiStatus === 'error' && (
+            <p className="mt-1 text-xs text-red-500">⚠️ 端侧推理失败，请重试</p>
+          )}
+
           {isExtracting && !streamedText ? (
             <div className="mt-2 flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-slate-600 transition-opacity">
               <span className="relative flex h-2 w-2">
@@ -289,26 +415,50 @@ export default function HomePage() {
 
       <main className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden p-2 lg:grid-cols-[1fr_1.1fr_1fr]">
         <ErrorBoundary>
-          <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <SourcePanel
-              sourceText={displaySourceText}
-              activeSourceRef={selectedField?.sourceRef ?? null}
-            />
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-3 py-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                ① 原文对照
+              </h2>
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              <SourcePanel
+                sourceText={displaySourceText}
+                activeSourceRef={selectedField?.sourceRef ?? null}
+              />
+            </div>
           </section>
         </ErrorBoundary>
 
         <ErrorBoundary>
-          <section className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-            <ExtractionList
-              fields={displayFields}
-              selectedId={selectedFieldId}
-              onSelect={selectField}
-            />
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                ② 提取字段
+              </h2>
+              {displayFields.length > 0 && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                  {displayFields.length} 项
+                </span>
+              )}
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <ExtractionList
+                fields={displayFields}
+                selectedId={selectedFieldId}
+                onSelect={selectField}
+              />
+            </div>
           </section>
         </ErrorBoundary>
 
         <ErrorBoundary>
           <section className="min-h-0 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white">
+            <div className="border-b border-slate-100 px-3 py-2">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                ③ 审计面板
+              </h2>
+            </div>
             <div className="min-h-0 flex-1 overflow-hidden">
               <AuditPanel field={selectedField} />
             </div>

@@ -1,10 +1,55 @@
-export const LEGAL_KNOWLEDGE = [
-  { keywords: ['预付款', '首付'], rule: '法务提示：预付款比例通常建议不超过 30%，以降低资金占用风险。' },
-  { keywords: ['违约金', '逾期'], rule: '法务提示：违约金按日万分之五计算，折算年化约 18.25%，建议确认是否超过合同总额的 30%。' },
-  { keywords: ['争议', '诉讼', '仲裁'], rule: '法务提示：争议解决管辖地通常建议选择原告所在地或合同履行地法院，以平衡双方权益。' }
-];
+import path from 'node:path';
 
-export function getKnowledgeContext(fieldName: string): string | null {
-  const matched = LEGAL_KNOWLEDGE.find(item => item.keywords.some(kw => fieldName.includes(kw)));
-  return matched ? matched.rule : null;
+import { searchLegislation } from '@ansvar/chinese-law-mcp/dist/tools/search-legislation.js';
+import Database from '@ansvar/mcp-sqlite';
+
+/**
+ * 本地法律知识库：基于 @ansvar/chinese-law-mcp 的 SQLite 全文库
+ * （1,188 部法律法规 / 62,981 条条文，FTS5 trigram 中文检索）。
+ * 仅可在服务端使用（Node 运行时）。
+ */
+
+const DB_PATH = path.join(
+  process.cwd(),
+  'node_modules',
+  '@ansvar',
+  'chinese-law-mcp',
+  'data',
+  'database.db',
+);
+
+const MAX_HITS = 3;
+
+let db: Database | null = null;
+
+function getDb(): Database {
+  if (!db) {
+    db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
+  }
+  return db;
+}
+
+/**
+ * 按字段名在法律库中做全文检索，返回条文标题 + 内容片段的摘要。
+ * 未命中或查询失败返回 null（不阻断主流程）。
+ */
+export async function getKnowledgeContext(fieldName: string): Promise<string | null> {
+  const query = fieldName.trim();
+  if (!query) return null;
+
+  try {
+    const response = await searchLegislation(getDb(), { query, limit: MAX_HITS });
+    const hits = response.results;
+    if (!hits.length) return null;
+
+    return hits
+      .map(
+        (hit) =>
+          `《${hit.document_title}》${hit.provision_ref}：${hit.snippet.replaceAll('>>>', '「').replaceAll('<<<', '」')}`,
+      )
+      .join('\n');
+  } catch (error) {
+    console.error('[knowledge-base] 检索失败:', error);
+    return null;
+  }
 }

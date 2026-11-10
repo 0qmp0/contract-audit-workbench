@@ -7,7 +7,7 @@ export interface UploadBoxProps {
   accept?: string;
 }
 
-export function UploadBox({ onFileSelect, accept = '.txt,.md,.pdf' }: UploadBoxProps) {
+export function UploadBox({ onFileSelect, accept = '.txt,.md,.pdf,.docx' }: UploadBoxProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
