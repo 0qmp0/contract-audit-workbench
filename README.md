@@ -1,71 +1,105 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 合同/协议条款辅助审阅与规则审计工作台 (Contract Audit Workbench)
 
-## Getting Started
+> **全国高校AI Web开发挑战赛 参赛作品**
+> 本工具基于 AI Native 理念构建，致力于解决法务与业务人员在日常合同审阅中面临的“信息提取繁琐、人工核对易漏、隐私担忧”等痛点。
+> **边界声明**：本工具仅提供辅助审阅与审计，不提供法律意见，最终判断由人工完成。
 
-First, run the development server:
+## 核心功能亮点
+
+1. **动态条款智能提取**：接入 DeepSeek 大模型，不再局限于固定模板，可智能识别任意合同（如租赁、劳务、采购）并提取核心条款（付款方式、违约责任等）。
+2. **双重校验与 RAG 增强**：提取结果自动经过本地规则引擎（校验金额、日期等格式）与本地法务知识库（匹配合规建议），实现“AI 提取 + 本地 RAG 知识增强”。
+3. **三重审计与幻觉拦截**：独创“AI 原始输出 + 规则判定依据 + 原文精准溯源”三栏联动架构。若 AI 引用了原文中不存在的片段，系统将自动标记为“疑似幻觉”并拦截。
+4. **端云协同推理**：引入 Web Worker 与 `Transformers.js`，在浏览器端运行轻量级模型，实现在云端大模型处理前的本地极速预检与隐私保护。
+5. **多模态报告生成**：支持将审计结果导出为结构化的 Markdown 报告，或通过阿里云百炼文生图大模型，一键生成商务风格的可视化审计摘要图片。
+6. **本地持久化与历史回溯**：基于 IndexedDB 实现无感知的会话持久化，刷新页面不丢数据，支持历史审阅记录秒级切换。
+
+##  技术架构
+
+- **前端框架**：Next.js 16 (App Router) + React + TypeScript
+- **样式与 UI**：Tailwind CSS + Lucide Icons
+- **状态管理**：Zustand (客户端状态) + TanStack Query (服务端状态)
+- **本地存储**：idb-keyval (IndexedDB 持久化)
+- **AI 能力集成**：
+  - **云端大模型**：Vercel AI SDK + DeepSeek API (流式提取)
+  - **端侧推理**：@xenova/transformers (Web Worker 运行)
+  - **多模态生成**：阿里云百炼 (DashScope API 生图)
+- **工程化**：ESLint + Prettier + TypeScript Strict 模式
+
+##  快速开始
+
+### 1. 克隆项目并安装依赖
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/0qmp0/contract-audit-workbench.git
+cd contract-audit-workbench
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2. 配置环境变量
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+在项目根目录创建 `.env.local` 文件，填入你的 API 密钥：
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```env
+# DeepSeek API Key (用于核心条款提取)
+DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
 
-## Learn More
+# 阿里云百炼 API Key (用于多模态生图)
+DASHSCOPE_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
+```
 
-To learn more about Next.js, take a look at the following resources:
+### 3. 启动开发服务器
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+pnpm dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+打开浏览器访问 http://localhost:3000 即可体验。
 
-## Deploy on Vercel
+##  目录结构
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```text
+├─ app/                  # 路由与页面 (含 API 路由、Worker)
+├─ components/           # 核心业务组件 (审计面板、字段卡片等)
+├─ hooks/                # 自定义 Hooks (历史记录查询等)
+├─ lib/                  # AI 封装、解析层、法务知识库、本地存储
+├─ rules/                # 本地规则引擎 (金额、日期、违约等校验)
+├─ stores/               # Zustand 全局状态管理
+├─ types/                # TypeScript 类型定义
+└─ dev/                  # 组件调试辅助资源
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+##  开发日志
 
 ### Day 1
 
-- 完成：Next.js 项目初始化，ESLint + Prettier + TypeScript strict 配置，目录结构、`.env.example`、README 骨架、Git 仓库建立并推送。
-- 问题：pnpm 环境变量未配置，改用 npx 临时方案后修复；`.gitignore` 的 `.env*` 会误伤 `.env.example`，已加 `!.env.example` 例外。
-
+- **完成**：Next.js 项目初始化，工程规范配置，目录结构、.env.example、Git 仓库建立。
+- **问题**：pnpm 环境变量未配置；.gitignore 的 .env* 会误伤 .env.example，已加 !.env.example 例外。
 
 ### Day 2
 
-- 完成：三栏 UI 骨架与 9 个核心组件拆分，Zustand 最小 store 接入，TanStack Query mock 历史列表跑通加载/错误/空状态，新增 `/dev/components` 组件集中页，变体拆到 `dev/components/`。
-- 问题：第 4、5 批改动混在一起漏提交；`app/dev/components/page.tsx` 首次生成为 0 字节导致 build 报 `is not a module`，重写内容后修复。
-
+- **完成**：三栏 UI 骨架与 9 个核心组件拆分，Zustand 最小 store 接入，TanStack Query mock 历史列表跑通。
+- **问题**：第 4、5 批改动混在一起漏提交；app/dev/components/page.tsx 首次生成为 0 字节导致 build 报错，重写后修复。
 
 ### Day 3
 
-- 完成：`lib/ai.ts` 封装 DeepSeek provider 与提取 Prompt，`/api/extract` 流式接口，前端 fetch + ReadableStream 消费 SSE，支持中断与错误兜底。
-- 问题：AI SDK 新版弃用 `toTextStreamResponse` / `toUIMessageStreamResponse`，改用 `createUIMessageStreamResponse` + `toUIMessageStream`；默认错误被掩盖成 "An error occurred."，通过 `onError` 暴露真实错误后验证 401 能正确显示。
-
+- **完成**：封装 DeepSeek provider 与提取 Prompt；API 路由实现流式接口；前端通过 fetch + ReadableStream 消费 SSE，支持中断与错误兜底。
+- **问题**：AI SDK 新版弃用旧方法，改用 createUIMessageStreamResponse；SDK 默认错误被掩盖，通过 onError 暴露真实错误。
 
 ### Day 4
 
-- 完成：实现 `rules/` 规则引擎（金额、期限、主体、争议等 5 类规则及三档判定）；编写 `lib/parse-extraction.ts` 将 AI 流式 JSON 转换为 `ExtractedField` 并验证引用（RAG 幻觉拦截）；前端接入真实提取结果。
-- 问题：AI 返回的 `source_ref` 是字符串而非 `SourceRef` 对象，需通过 `indexOf` 转换为 `{ start, end, snippet }`；若找不到对应原文，设为 `null` 并标记 `needs-human`。
-
+- **完成**：实现 rules/ 规则引擎；编写 lib/parse-extraction.ts 将 AI 流式 JSON 转换为字段并验证引用；前端接入真实提取结果。
+- **问题**：AI 返回的 source_ref 是字符串，需转换为对象并校验，若找不到对应原文则标记 needs-human。
 
 ### Day 5
 
-- 完成：核心状态（`sourceText`、`extractedFields`）迁移至 Zustand；使用 `idb-keyval` 实现 IndexedDB 持久化，支持刷新恢复与历史会话切换；新增 Markdown 格式审阅报告导出功能；`SourcePanel` 增加 `scrollIntoView` 自动定位高亮。
-- 问题：异步写入 IndexedDB 与 TanStack Query 的历史列表刷新存在时序差，通过 `setTimeout` 延迟 300ms 触发 `refetch()` 解决。
+- **完成**：核心状态迁移至 Zustand；使用 idb-keyval 实现 IndexedDB 持久化；新增 Markdown 报告导出；左侧面板增加自动定位高亮。
+- **问题**：异步写入与列表查询存在时序差，通过延迟触发 refetch() 解决。
 
 ### Day 6
 
-- 完成：增加 30 秒请求超时控制；首字延迟时展示“正在读取协议…”占位；新增 `ErrorBoundary` 组件拦截渲染异常，防止局部报错导致全屏白屏；适配移动端视口（`h-dvh`），支持移动端折叠输入区。
-- 问题：`catch` 块中无法通过 `streamError` 状态区分手动中断与超时，引入 `isManualAbortRef` 解决闭包陷阱；ESLint 严格模式要求 `type-only import`。
+- **完成**：增加请求超时控制与首字延迟占位；新增 ErrorBoundary 拦截渲染异常；适配移动端视口与输入区折叠；集成动态 Prompt、本地法务知识库 RAG、Web Worker 端侧推理、百炼文生图。
+- **问题**：区分手动中断与超时需使用 Ref 避免闭包陷阱；ESLint 严格模式要求 type-only import。
 
+
+### Day 7
+- 暂停开发，等待用户反馈与需求调整。
